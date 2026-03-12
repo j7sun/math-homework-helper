@@ -17,6 +17,8 @@ import Badge from "../components/Badge";
 import SectionHeader from "../components/SectionHeader";
 import PhotoPickerSheet from "../components/PhotoPickerSheet";
 import PhotoPreviewModal from "../components/PhotoPreviewModal";
+import SolutionModal from "../components/SolutionModal";
+import { solveMathProblem, MathSolution } from "../services/claudeService";
 import {
   recentProblems,
   streakData,
@@ -32,7 +34,15 @@ const difficultyColors: Record<string, string> = {
 export default function HomeScreen() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [previewBase64, setPreviewBase64] = useState<string | null>(null);
+  const [previewMime, setPreviewMime] = useState<string>("image/jpeg");
   const [previewVisible, setPreviewVisible] = useState(false);
+
+  const [solutionVisible, setSolutionVisible] = useState(false);
+  const [solutionLoading, setSolutionLoading] = useState(false);
+  const [solution, setSolution] = useState<MathSolution | null>(null);
+  const [solutionError, setSolutionError] = useState<string | null>(null);
+  const [solutionImageUri, setSolutionImageUri] = useState<string | null>(null);
 
   // ── Image picker helpers ──────────────────────────────────────────────────
 
@@ -44,13 +54,16 @@ export default function HomeScreen() {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: "images",
       quality: 0.85,
       allowsEditing: true,
       aspect: [4, 3],
+      base64: true,
     });
     if (!result.canceled && result.assets[0]) {
       setPreviewUri(result.assets[0].uri);
+      setPreviewBase64(result.assets[0].base64 ?? null);
+      setPreviewMime(result.assets[0].mimeType ?? "image/jpeg");
       setPreviewVisible(true);
     }
   };
@@ -63,33 +76,67 @@ export default function HomeScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: "images",
       quality: 0.85,
       allowsEditing: true,
       aspect: [4, 3],
+      base64: true,
     });
     if (!result.canceled && result.assets[0]) {
       setPreviewUri(result.assets[0].uri);
+      setPreviewBase64(result.assets[0].base64 ?? null);
+      setPreviewMime(result.assets[0].mimeType ?? "image/jpeg");
       setPreviewVisible(true);
     }
   };
 
-  const handleConfirm = (uri: string) => {
+  const handleConfirm = async (uri: string) => {
     setPreviewVisible(false);
-    setPreviewUri(null);
-    // TODO: pass uri to solver / AI pipeline
-    Alert.alert("Photo confirmed", "Ready to solve! (AI pipeline coming soon)");
+    setSolutionImageUri(uri);
+    setSolution(null);
+    setSolutionError(null);
+    setSolutionLoading(true);
+    setSolutionVisible(true);
+
+    try {
+      if (!previewBase64) throw new Error("Image data is missing. Please try again.");
+      const result = await solveMathProblem(previewBase64, previewMime);
+      setSolution(result);
+    } catch (err: any) {
+      setSolutionError(err?.message ?? "An unexpected error occurred.");
+    } finally {
+      setSolutionLoading(false);
+      setPreviewUri(null);
+      setPreviewBase64(null);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!previewBase64 && !solutionImageUri) return;
+    setSolution(null);
+    setSolutionError(null);
+    setSolutionLoading(true);
+    try {
+      const result = await solveMathProblem(previewBase64 ?? "", previewMime);
+      setSolution(result);
+    } catch (err: any) {
+      setSolutionError(err?.message ?? "An unexpected error occurred.");
+    } finally {
+      setSolutionLoading(false);
+    }
   };
 
   const handleRetake = () => {
     setPreviewVisible(false);
     setPreviewUri(null);
+    setPreviewBase64(null);
     setPickerVisible(true);
   };
 
   const handleCancelPreview = () => {
     setPreviewVisible(false);
     setPreviewUri(null);
+    setPreviewBase64(null);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -261,6 +308,15 @@ export default function HomeScreen() {
         onConfirm={handleConfirm}
         onRetake={handleRetake}
         onCancel={handleCancelPreview}
+      />
+      <SolutionModal
+        visible={solutionVisible}
+        imageUri={solutionImageUri}
+        loading={solutionLoading}
+        solution={solution}
+        error={solutionError}
+        onClose={() => setSolutionVisible(false)}
+        onRetry={handleRetry}
       />
     </SafeAreaView>
   );
